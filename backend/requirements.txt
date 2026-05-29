@@ -1,0 +1,11 @@
+# Backend dependencies — version-locked to what's in the venv
+# Re-generate with: pip freeze > requirements.txt
+fastapi>=0.136.0
+uvicorn[standard]>=0.48.0
+sqlmodel>=0.0.38
+psycopg2-binary>=2.9.0
+python-dotenv>=1.2.0
+smolagents>=1.25.0
+chromadb>=1.5.0
+litellm>=1.86.0
+alembic>=1.13.0
