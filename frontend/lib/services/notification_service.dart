@@ -14,7 +14,7 @@ class NotificationService {
     tz.initializeTimeZones();
     
     const AndroidInitializationSettings androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const DarwinInitializationSettings iosSettings = DarwinInitializationSettings(
+    const DarwinInitializationSettings darwinSettings = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
       requestSoundPermission: false,
@@ -22,7 +22,8 @@ class NotificationService {
 
     const InitializationSettings initSettings = InitializationSettings(
       android: androidSettings,
-      iOS: iosSettings,
+      iOS: darwinSettings,
+      macOS: darwinSettings,
     );
 
     await _plugin.initialize(
@@ -56,7 +57,13 @@ class NotificationService {
       showWhen: true,
     );
 
-    const NotificationDetails details = NotificationDetails(android: androidDetails);
+    const DarwinNotificationDetails darwinDetails = DarwinNotificationDetails();
+
+    const NotificationDetails details = NotificationDetails(
+      android: androidDetails,
+      iOS: darwinDetails,
+      macOS: darwinDetails,
+    );
     await _plugin.show(id, title, body, details);
   }
 
@@ -76,7 +83,13 @@ class NotificationService {
       playSound: true,
     );
 
-    const NotificationDetails details = NotificationDetails(android: androidDetails);
+    const DarwinNotificationDetails darwinDetails = DarwinNotificationDetails();
+
+    const NotificationDetails details = NotificationDetails(
+      android: androidDetails,
+      iOS: darwinDetails,
+      macOS: darwinDetails,
+    );
     
     await _plugin.zonedSchedule(
       id,
