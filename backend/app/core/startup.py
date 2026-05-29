@@ -23,9 +23,9 @@ def seed_default_user_if_missing() -> None:
             select(User).where(User.username == "adith")
         ).first()
         if not existing:
-            user = User(username="adith", discipline_score=0)
+            user = User(username="adith", discipline_score=500)
             session.add(user)
             session.commit()
-            print("[STARTUP] Seeded default user: adith (score=0)")
+            print("[STARTUP] Seeded default user: adith (score=500)")
         else:
             print(f"[STARTUP] Default user exists: id={existing.id}, score={existing.discipline_score}")

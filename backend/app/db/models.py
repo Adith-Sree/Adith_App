@@ -7,8 +7,8 @@ from sqlmodel import Field, SQLModel, Relationship
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     username: str = Field(index=True, unique=True)
-    # CRITICAL: Default is 0 — no pre-stored score, earn it through real sessions.
-    discipline_score: int = Field(default=0)
+    # CRITICAL: Default is 500 — starting score base, earn or lose from here.
+    discipline_score: int = Field(default=500)
 
     # Relationship links (One User -> Many Sessions/Tasks)
     sessions: list["FocusSession"] = Relationship(back_populates="user")

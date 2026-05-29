@@ -49,7 +49,7 @@ def reset() -> None:
         else:
             default_user = User(
                 username="adith",
-                discipline_score=0,  # STRICT: starts at zero — no free points
+                discipline_score=500,  # Seed starting score at 500
             )
             session.add(default_user)
             session.commit()
