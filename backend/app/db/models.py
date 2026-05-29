@@ -10,8 +10,9 @@ class User(SQLModel, table=True):
     # CRITICAL: Default is 0 — no pre-stored score, earn it through real sessions.
     discipline_score: int = Field(default=0)
 
-    # Relationship link (One User -> Many Sessions)
+    # Relationship links (One User -> Many Sessions/Tasks)
     sessions: list["FocusSession"] = Relationship(back_populates="user")
+    tasks: list["TaskGoal"] = Relationship(back_populates="user")
 
 
 # Table 2: The Focus Session
@@ -48,3 +49,15 @@ class AgentLog(SQLModel, table=True):
     # The Foreign Key linking this message to a specific focus session (Indexed)
     session_id: int = Field(foreign_key="focussession.id", index=True)
     session: Optional[FocusSession] = Relationship(back_populates="agent_logs")
+
+
+# Table 4: The Task Goal Checklist
+# Synchronized focus task checklist.
+class TaskGoal(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str = Field(index=True)
+    done: bool = Field(default=False)
+
+    # The Foreign Key linking this task back to a specific user
+    user_id: int = Field(foreign_key="user.id", index=True)
+    user: Optional[User] = Relationship(back_populates="tasks")

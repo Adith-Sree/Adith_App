@@ -5,6 +5,7 @@ import uvicorn
 
 from app.api.sessions import router as sessions_router
 from app.api.analytics import router as analytics_router
+from app.api.goals import router as goals_router
 from app.db.session import create_db_and_tables
 from app.core.startup import seed_default_user_if_missing
 from app.core.security import verify_api_key
@@ -37,6 +38,7 @@ def on_startup() -> None:
 # Wire routers secured by global API Key verification to prevent IDOR and unauthorized edits
 app.include_router(sessions_router, dependencies=[Depends(verify_api_key)])
 app.include_router(analytics_router, dependencies=[Depends(verify_api_key)])
+app.include_router(goals_router, dependencies=[Depends(verify_api_key)])
 
 
 @app.get("/")

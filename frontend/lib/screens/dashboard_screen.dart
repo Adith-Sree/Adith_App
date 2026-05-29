@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/focus_session.dart';
 import '../models/analytics_response.dart';
 import '../services/api_service.dart';
+import '../services/notification_service.dart';
 import '../widgets/force_stop_button.dart';
 import '../widgets/custom_charts.dart';
 import '../widgets/cyber_terminal.dart';
@@ -64,12 +65,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     "[STATUS] Focus state: NOMINAL. Ready to broker.",
   ];
 
-  // Local task checklist (Goals tab) — UI-only, not persisted
-  final List<Map<String, dynamic>> _mockTasks = [
-    {'title': 'Draft microservice routing schemas', 'done': true},
-    {'title': 'Implement red-black tree insertion tests', 'done': false},
-    {'title': 'Verify memory safety bounds in parsing buffers', 'done': false},
-  ];
+  // Persistent task checklist (Goals tab) — fully synchronized with the database
+  List<Map<String, dynamic>> _checklistTasks = [];
+  bool _isGoalsLoading = false;
 
   final TextEditingController _localTaskController = TextEditingController();
 
@@ -84,8 +82,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    // Fetch live score + graph on first render
+    // Fetch live score + graph + checklist goals on first render
     _refreshAnalytics();
+    _loadGoals();
+    // Request system notifications permission on mobile launch
+    NotificationService().requestPermissions();
   }
 
   @override
@@ -95,6 +96,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _goalController.dispose();
     _localTaskController.dispose();
     super.dispose();
+  }
+
+  // ── Checklist Goals Load ──────────────────────────────────────────────────
+  Future<void> _loadGoals() async {
+    if (!mounted) return;
+    setState(() => _isGoalsLoading = true);
+    final loaded = await _apiService.fetchGoals(userId: 1);
+    if (!mounted) return;
+    setState(() {
+      _checklistTasks = loaded;
+      _isGoalsLoading = false;
+    });
   }
 
   // ── Analytics Refresh ─────────────────────────────────────────────────────
@@ -197,6 +210,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _isIntercepted = false;
         _aiStreamedMessage = "";
         _startTimer(_duration);
+        
+        // Schedule completion alert and trigger instant start notification
+        NotificationService().showInstantNotification(
+          id: 777,
+          title: "Focus Contract Locked 🔒",
+          body: "Committed to '${_goalController.text}' for $_duration minutes.",
+        );
+        NotificationService().scheduleNotification(
+          id: 888,
+          title: "Focus Contract Fulfilled! 🛡️",
+          body: "Your $_duration minute focus lock timer has reached zero.",
+          secondsFromNow: _duration * 60,
+        );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -212,6 +238,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Called when the countdown timer reaches zero
   Future<void> _onSessionComplete() async {
     final sid = _activeSessionId;
+    
+    // Cancel the scheduled timer alert and show instant success notification
+    NotificationService().cancelNotification(888);
+    NotificationService().showInstantNotification(
+      id: 999,
+      title: "Focus Contract Fulfilled! 🛡️",
+      body: "Contract successfully completed. Awarded +25 discipline points.",
+    );
+
     setState(() {
       _isSessionActive = false;
       _isIntercepted = false;
@@ -246,6 +281,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _forceStop() async {
     setState(() => _isForceStopping = true);
 
+    // Cancel scheduled countdown timer alarm on force quit
+    NotificationService().cancelNotification(888);
+
     final sid = _activeSessionId ?? 1; // fall back to 1 for dev if id was lost
     final result = await _apiService.forceStopSession(sid);
 
@@ -262,6 +300,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _distractionTimer?.cancel();
 
         final penalty = result['penalty'] as int? ?? -25;
+        
+        NotificationService().showInstantNotification(
+          id: 555,
+          title: "Focus Contract Violated! 🚨",
+          body: "Contract terminated early. Penalty applied: $penalty points.",
+        );
+
         final newScore = result['new_score'] as int?;
 
         _activeLogs.add("[ALERT] Focus contract forcefully terminated! Penalty: $penalty pts.");
@@ -1210,12 +1255,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       borderSide: BorderSide(color: accentBlue),
                     ),
                   ),
-                  onSubmitted: (val) {
-                    if (val.trim().isNotEmpty) {
-                      setState(() {
-                        _mockTasks.add({'title': val.trim(), 'done': false});
-                      });
+                  onSubmitted: (val) async {
+                    final text = val.trim();
+                    if (text.isNotEmpty) {
                       _localTaskController.clear();
+                      final result = await _apiService.addGoal(text);
+                      if (result != null) {
+                        _loadGoals();
+                      } else {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text("Failed to add goal. Please check your network connection."),
+                            backgroundColor: Colors.redAccent,
+                          ),
+                        );
+                      }
                     }
                   },
                 ),
@@ -1227,12 +1282,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   padding: const EdgeInsets.all(18),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                onPressed: () {
-                  if (_localTaskController.text.trim().isNotEmpty) {
-                    setState(() {
-                      _mockTasks.add({'title': _localTaskController.text.trim(), 'done': false});
-                    });
+                onPressed: () async {
+                  final text = _localTaskController.text.trim();
+                  if (text.isNotEmpty) {
                     _localTaskController.clear();
+                    final result = await _apiService.addGoal(text);
+                    if (result != null) {
+                      _loadGoals();
+                    } else {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Failed to add goal. Please check your network connection."),
+                          backgroundColor: Colors.redAccent,
+                        ),
+                      );
+                    }
                   }
                 },
                 child: const Icon(Icons.add, color: Colors.white),
@@ -1241,54 +1306,107 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 24),
           Expanded(
-            child: ListView.builder(
-              itemCount: _mockTasks.length,
-              itemBuilder: (context, index) {
-                final task = _mockTasks[index];
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white.withOpacity(0.04)),
-                  ),
-                  child: Row(
-                    children: [
-                      Checkbox(
-                        value: task['done'],
-                        activeColor: accentBlue,
-                        checkColor: Colors.white,
-                        onChanged: (val) {
-                          setState(() {
-                            task['done'] = val;
-                          });
-                        },
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
+            child: _isGoalsLoading
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFF2962FF),
+                    ),
+                  )
+                : _checklistTasks.isEmpty
+                    ? Center(
                         child: Text(
-                          task['title'],
-                          style: TextStyle(
-                            color: task['done'] ? textMuted : Colors.white,
-                            fontSize: 14.5,
-                            decoration: task['done'] ? TextDecoration.lineThrough : null,
-                          ),
+                          'No checklist items yet. Define one above!',
+                          style: TextStyle(color: textMuted, fontSize: 14),
                         ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline_rounded, color: Colors.grey, size: 20),
-                        onPressed: () {
-                          setState(() {
-                            _mockTasks.removeAt(index);
-                          });
+                      )
+                    : ListView.builder(
+                        itemCount: _checklistTasks.length,
+                        itemBuilder: (_, index) {
+                          final task = _checklistTasks[index];
+                          final int taskId = task['id'] as int? ?? 0;
+                          final String title = task['title'] as String? ?? '';
+                          final bool done = task['done'] as bool? ?? false;
+
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.white.withOpacity(0.04)),
+                            ),
+                            child: Row(
+                              children: [
+                                Checkbox(
+                                  value: done,
+                                  activeColor: accentBlue,
+                                  checkColor: Colors.white,
+                                  onChanged: (val) async {
+                                    if (val != null && taskId != 0) {
+                                      final previousVal = task['done'];
+                                      setState(() {
+                                        task['done'] = val; // optimistic update
+                                      });
+                                      final success = await _apiService.toggleGoal(taskId, val);
+                                      if (success) {
+                                        _loadGoals();
+                                      } else {
+                                        setState(() {
+                                          task['done'] = previousVal; // revert
+                                        });
+                                        if (!mounted) return;
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text("Failed to update goal. Please check your network connection."),
+                                            backgroundColor: Colors.redAccent,
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    title,
+                                    style: TextStyle(
+                                      color: done ? textMuted : Colors.white,
+                                      fontSize: 14.5,
+                                      decoration: done ? TextDecoration.lineThrough : null,
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline_rounded, color: Colors.grey, size: 20),
+                                  onPressed: () async {
+                                    if (taskId != 0) {
+                                      final removedTask = _checklistTasks[index];
+                                      setState(() {
+                                        _checklistTasks.removeAt(index); // optimistic update
+                                      });
+                                      final success = await _apiService.deleteGoal(taskId);
+                                      if (success) {
+                                        _loadGoals();
+                                      } else {
+                                        setState(() {
+                                          _checklistTasks.insert(index, removedTask); // revert
+                                        });
+                                        if (!mounted) return;
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text("Failed to delete goal. Please check your network connection."),
+                                            backgroundColor: Colors.redAccent,
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
+                          );
                         },
                       ),
-                    ],
-                  ),
-                );
-              },
-            ),
           ),
         ],
       ),

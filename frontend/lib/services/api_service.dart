@@ -23,16 +23,16 @@ import '../models/analytics_response.dart';
 
 class ApiService {
   /// Resolved at compile time. Set via --dart-define=API_BASE_URL=`url`
-  /// Defaults to 127.0.0.1 for local macOS dev.
+  /// Defaults to production DigitalOcean app URL.
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://127.0.0.1:8000/api',
+    defaultValue: 'https://shark-app-dsh7f.ondigitalocean.app/api',
   );
 
   /// API Access token resolved at compile time via --dart-define=API_KEY=`token`
   static const String apiKey = String.fromEnvironment(
     'API_KEY',
-    defaultValue: '',
+    defaultValue: 'DeepWorkLifeOSSecureToken2026',
   );
 
   /// Dynamically builds the security request headers
@@ -154,6 +154,87 @@ class ApiService {
       return null;
     } catch (_) {
       return null;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // 6. Task Checklist Goals Persistence Endpoints
+  // ─────────────────────────────────────────────────────────────────
+  
+  /// Fetches all checklist goals from the DB for a specific user.
+  Future<List<Map<String, dynamic>>> fetchGoals({int userId = 1}) async {
+    final url = Uri.parse('$baseUrl/goals/users/$userId');
+    try {
+      final response = await http.get(
+        url,
+        headers: _authHeaders,
+      ).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as List<dynamic>;
+        return decoded.map((e) => e as Map<String, dynamic>).toList();
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Adds a new task goal in the database.
+  Future<Map<String, dynamic>?> addGoal(String title, {int userId = 1}) async {
+    final url = Uri.parse('$baseUrl/goals');
+    try {
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          ..._authHeaders,
+        },
+        body: jsonEncode({
+          'title': title,
+          'user_id': userId,
+        }),
+      );
+      if (response.statusCode == 201) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Toggles the checkbox done value of a goal in the database.
+  Future<bool> toggleGoal(int goalId, bool done) async {
+    final url = Uri.parse('$baseUrl/goals/$goalId/toggle');
+    try {
+      final response = await http.patch(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          ..._authHeaders,
+        },
+        body: jsonEncode({
+          'done': done,
+        }),
+      );
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Deletes a goal from the database.
+  Future<bool> deleteGoal(int goalId) async {
+    final url = Uri.parse('$baseUrl/goals/$goalId');
+    try {
+      final response = await http.delete(
+        url,
+        headers: _authHeaders,
+      );
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
     }
   }
 }
