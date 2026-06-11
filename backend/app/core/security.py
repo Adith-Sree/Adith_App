@@ -1,41 +1,82 @@
 """
 backend/app/core/security.py
 
-Simple and robust security middleware to validate request headers in production environments.
+Security middleware to validate request headers in production environments.
+Supports standard static API keys and Google OAuth2 ID Token verification.
 Protects endpoints from unauthorized manipulation or Insecure Direct Object References (IDOR).
 """
 import os
 from fastapi import HTTPException, Security, status
-from fastapi.security import APIKeyHeader
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from google.oauth2 import id_token
+from google.auth.transport import requests
 
-# Reads APP_API_KEY from environment variables. If unset, runs in open mode (useful for dev)
+# Reads secrets from environment variables
 API_KEY = os.getenv("APP_API_KEY", "")
-API_KEY_NAME = "Authorization"
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 
-# Checks incoming "Authorization" header
-api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+# Standard Bearer auth header helper
+security_scheme = HTTPBearer(auto_error=False)
 
-def verify_api_key(api_key_header_val: str = Security(api_key_header)):
+def verify_google_token(credentials: HTTPAuthorizationCredentials = Security(security_scheme)) -> dict:
     """
-    Dependency injection validator. If APP_API_KEY is configured in the environment,
-    validates that the Authorization header matches the key (either as Bearer or plain).
+    Dependency injection validator for Google ID Tokens.
+    Verifies the Google OAuth2 token sent in the Authorization header.
+    Returns the decoded user info dict if valid.
     """
-    if not API_KEY:
-        # Backward-compatible: No security required if environment has no APP_API_KEY
-        return True
+    if not GOOGLE_CLIENT_ID:
+        # Development fallback: if Google Client ID is not configured, bypass Google Auth check
+        return {"email": "dev-user@example.com", "name": "Dev User", "picture": ""}
 
-    if not api_key_header_val:
+    if not credentials or not credentials.credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization API key header."
+            detail="Missing Google Authorization Bearer token."
         )
 
-    # Standardize Bearer prefix matching or direct matching
-    expected_bearer = f"Bearer {API_KEY}"
-    if api_key_header_val != expected_bearer and api_key_header_val != API_KEY:
+    token = credentials.credentials
+    try:
+        # Verify the ID Token against Google's public certificates
+        idinfo = id_token.verify_oauth2_token(token, requests.Request(), GOOGLE_CLIENT_ID)
+        
+        # Verify issuer is indeed Google
+        if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
+            raise ValueError('Wrong issuer.')
+            
+        return idinfo
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Authorization API key token."
+            detail=f"Invalid Google Authorization Token: {str(e)}"
+        )
+
+
+def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security_scheme)) -> bool:
+    """
+    Dependency injection validator. Handles both Google token authentication (if configured)
+    and static API key authentication (for backward compatibility / automation scripts).
+    """
+    # 1. If Google Client ID is configured, prefer Google Token Verification
+    if GOOGLE_CLIENT_ID:
+        verify_google_token(credentials)
+        return True
+
+    # 2. Fallback to static API key verification
+    if not API_KEY:
+        # Backward-compatible: No security required if environment has no APP_API_KEY or GOOGLE_CLIENT_ID
+        return True
+
+    if not credentials or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing Authorization Bearer token."
+        )
+
+    token = credentials.credentials
+    if token != API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Authorization token."
         )
 
     return True

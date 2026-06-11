@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../models/focus_session.dart';
 import '../models/analytics_response.dart';
@@ -18,7 +17,7 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingObserver {
   // 1. Controllers & Services
   final ApiService _apiService = ApiService();
   final TextEditingController _goalController = TextEditingController();
@@ -36,6 +35,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Tracks the real DB row id of the currently active session.
   // Null when no session is running.
   int? _activeSessionId;
+  DateTime? _sessionTargetEndTime;
 
   // ── LIVE Analytics State ──────────────────────────────────────────────────
   // Replaces all hardcoded metric variables.
@@ -82,6 +82,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Fetch live score + graph + checklist goals on first render
     _refreshAnalytics();
     _loadGoals();
@@ -91,11 +92,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _countdownTimer?.cancel();
     _distractionTimer?.cancel();
     _goalController.dispose();
     _localTaskController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      if (_isSessionActive && _sessionTargetEndTime != null) {
+        final now = DateTime.now();
+        if (now.isAfter(_sessionTargetEndTime!)) {
+          // Timer naturally finished while backgrounded!
+          _countdownTimer?.cancel();
+          _distractionTimer?.cancel();
+          _onSessionComplete();
+        } else {
+          // Adjust remaining seconds and continue ticking
+          setState(() {
+            _secondsRemaining = _sessionTargetEndTime!.difference(now).inSeconds;
+          });
+        }
+      }
+    }
   }
 
   // ── Checklist Goals Load ──────────────────────────────────────────────────
@@ -131,6 +154,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     setState(() {
       _secondsRemaining = minutes * 60;
+      _sessionTargetEndTime = DateTime.now().add(Duration(seconds: _secondsRemaining));
       _resistedCount = 0;
       _focusScore = 95;
       _efficiency = 92;
@@ -250,6 +274,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() {
       _isSessionActive = false;
       _isIntercepted = false;
+      _sessionTargetEndTime = null;
       _completedBlocks = math.min(_completedBlocks + 1, 3);
       _activeLogs.add("[SYSTEM] Focus contract timer expired!");
       _activeLogs.add("[BROKER] Registering completion with server...");
@@ -294,6 +319,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (result != null) {
         _isSessionActive = false;
         _isIntercepted = false;
+        _sessionTargetEndTime = null;
         _aiStreamedMessage = "";
         _activeSessionId = null;
         _countdownTimer?.cancel();
@@ -1580,7 +1606,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         width: 250,
                         child: TextField(
                           style: const TextStyle(color: Colors.white, fontSize: 13),
-                          controller: TextEditingController(text: 'http://127.0.0.1:8000/api'),
+                          controller: TextEditingController(text: ApiService.baseUrl),
                           decoration: InputDecoration(
                             filled: true,
                             fillColor: Colors.black.withOpacity(0.2),
