@@ -17,8 +17,8 @@ class ForceStopButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         gradient: LinearGradient(
           colors: [
-            Colors.redAccent.withOpacity(0.15),
-            Colors.orangeAccent.withOpacity(0.05),
+            Colors.redAccent.withValues(alpha: 0.15),
+            Colors.orangeAccent.withValues(alpha: 0.05),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -28,7 +28,7 @@ class ForceStopButton extends StatelessWidget {
         style: OutlinedButton.styleFrom(
           foregroundColor: Colors.red[300],
           side: BorderSide(
-            color: Colors.redAccent.withOpacity(0.4),
+            color: Colors.redAccent.withValues(alpha: 0.4),
             width: 1.5,
           ),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -36,7 +36,7 @@ class ForceStopButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
           ),
           elevation: 0,
-          shadowColor: Colors.redAccent.withOpacity(0.3),
+          shadowColor: Colors.redAccent.withValues(alpha: 0.3),
         ),
         onPressed: isLoading ? null : onPressed,
         icon: isLoading
