@@ -68,6 +68,8 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   // Persistent task checklist (Goals tab) — fully synchronized with the database
   List<Map<String, dynamic>> _checklistTasks = [];
   bool _isGoalsLoading = false;
+  // Deadline picker state for new goal input (mandatory before adding)
+  DateTime? _selectedGoalDeadline;
 
   final TextEditingController _localTaskController = TextEditingController();
 
@@ -1246,59 +1248,179 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   // ==========================================
   // TAB 3: TASK TARGET GOALS
   // ==========================================
+
+  // Returns urgency color based on how close the deadline is
+  Color _deadlineColor(String? deadlineStr) {
+    if (deadlineStr == null) return Colors.grey;
+    try {
+      final deadline = DateTime.parse(deadlineStr);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final diff = deadline.difference(today).inDays;
+      if (diff < 0) return const Color(0xFFFF1744); // overdue — red
+      if (diff == 0) return const Color(0xFFFF6D00); // today — orange
+      if (diff <= 2) return const Color(0xFFFFD600); // 2 days — yellow
+      return const Color(0xFF00E676); // comfortable — green
+    } catch (_) {
+      return Colors.grey;
+    }
+  }
+
+  // Human-readable deadline label, e.g. "Today", "Tomorrow", "Jul 5"
+  String _deadlineLabel(String? deadlineStr) {
+    if (deadlineStr == null) return 'No deadline';
+    try {
+      final deadline = DateTime.parse(deadlineStr);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final diff = deadline.difference(today).inDays;
+      if (diff < 0) return 'Overdue (${-diff}d ago)';
+      if (diff == 0) return 'Due Today';
+      if (diff == 1) return 'Due Tomorrow';
+      final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return 'Due ${months[deadline.month - 1]} ${deadline.day}';
+    } catch (_) {
+      return deadlineStr;
+    }
+  }
+
+  Future<void> _pickDeadline() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedGoalDeadline ?? now,
+      firstDate: now,
+      lastDate: DateTime(now.year + 5),
+      helpText: 'SELECT DEADLINE',
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: Color(0xFF2962FF),
+              onPrimary: Colors.white,
+              surface: Color(0xFF14141A),
+              onSurface: Colors.white,
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(foregroundColor: Color(0xFF2962FF)),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() => _selectedGoalDeadline = picked);
+    }
+  }
+
+  Future<void> _submitNewGoal() async {
+    final text = _localTaskController.text.trim();
+    if (text.isEmpty) return;
+    if (_selectedGoalDeadline == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a deadline before adding a goal.'),
+          backgroundColor: Color(0xFFFF6D00),
+        ),
+      );
+      return;
+    }
+    _localTaskController.clear();
+    final deadline = _selectedGoalDeadline!;
+    setState(() => _selectedGoalDeadline = null);
+    final result = await _apiService.addGoal(text, deadline);
+    if (result != null) {
+      _loadGoals();
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to add goal. Check your connection.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
   Widget _buildGoalsTab() {
+    final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    final deadlineBtnLabel = _selectedGoalDeadline == null
+        ? '📅  Set Deadline (required)'
+        : '📅  ${months[_selectedGoalDeadline!.month - 1]} ${_selectedGoalDeadline!.day}, ${_selectedGoalDeadline!.year}';
+    final deadlineBtnColor = _selectedGoalDeadline == null
+        ? Colors.white12
+        : const Color(0xFF2962FF).withValues(alpha: 0.25);
+
     return Container(
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
         color: surfaceColor,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.04)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Focus Checklist Objectives', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Text('List specific tasks to complete during your focus intervals.', style: TextStyle(color: textMuted, fontSize: 13)),
+          // ── Header ──
+          const Text('Focus Checklist Objectives',
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          Text('Sorted by deadline — closest due date appears first.',
+              style: TextStyle(color: textMuted, fontSize: 13)),
           const SizedBox(height: 24),
+
+          // ── Input: Task title ──
+          TextField(
+            controller: _localTaskController,
+            style: const TextStyle(color: Colors.white, fontSize: 14),
+            decoration: InputDecoration(
+              hintText: 'Define a sub-objective task...',
+              hintStyle: TextStyle(color: textMuted),
+              filled: true,
+              fillColor: Colors.black.withValues(alpha: 0.2),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.white10),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: accentBlue),
+              ),
+            ),
+            onSubmitted: (_) => _submitNewGoal(),
+          ),
+          const SizedBox(height: 10),
+
+          // ── Input: Deadline picker + Add button ──
           Row(
             children: [
               Expanded(
-                child: TextField(
-                  controller: _localTaskController,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                  decoration: InputDecoration(
-                    hintText: 'Define a sub-objective task...',
-                    hintStyle: TextStyle(color: textMuted),
-                    filled: true,
-                    fillColor: Colors.black.withOpacity(0.2),
-                    enabledBorder: OutlineInputBorder(
+                child: GestureDetector(
+                  onTap: _pickDeadline,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: deadlineBtnColor,
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.white10),
+                      border: Border.all(
+                        color: _selectedGoalDeadline == null
+                            ? Colors.white12
+                            : const Color(0xFF2962FF),
+                      ),
                     ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: accentBlue),
+                    child: Text(
+                      deadlineBtnLabel,
+                      style: TextStyle(
+                        color: _selectedGoalDeadline == null ? textMuted : Colors.white,
+                        fontSize: 13.5,
+                        fontWeight: _selectedGoalDeadline == null
+                            ? FontWeight.normal
+                            : FontWeight.bold,
+                      ),
                     ),
                   ),
-                  onSubmitted: (val) async {
-                    final text = val.trim();
-                    if (text.isNotEmpty) {
-                      _localTaskController.clear();
-                      final result = await _apiService.addGoal(text);
-                      if (result != null) {
-                        _loadGoals();
-                      } else {
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text("Failed to add goal. Please check your network connection."),
-                            backgroundColor: Colors.redAccent,
-                          ),
-                        );
-                      }
-                    }
-                  },
                 ),
               ),
               const SizedBox(width: 12),
@@ -1308,36 +1430,17 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                   padding: const EdgeInsets.all(18),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                onPressed: () async {
-                  final text = _localTaskController.text.trim();
-                  if (text.isNotEmpty) {
-                    _localTaskController.clear();
-                    final result = await _apiService.addGoal(text);
-                    if (result != null) {
-                      _loadGoals();
-                    } else {
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text("Failed to add goal. Please check your network connection."),
-                          backgroundColor: Colors.redAccent,
-                        ),
-                      );
-                    }
-                  }
-                },
+                onPressed: _submitNewGoal,
                 child: const Icon(Icons.add, color: Colors.white),
               ),
             ],
           ),
           const SizedBox(height: 24),
+
+          // ── Goal list ──
           Expanded(
             child: _isGoalsLoading
-                ? const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF2962FF),
-                    ),
-                  )
+                ? const Center(child: CircularProgressIndicator(color: Color(0xFF2962FF)))
                 : _checklistTasks.isEmpty
                     ? Center(
                         child: Text(
@@ -1352,14 +1455,21 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                           final int taskId = task['id'] as int? ?? 0;
                           final String title = task['title'] as String? ?? '';
                           final bool done = task['done'] as bool? ?? false;
+                          final String? deadlineStr = task['deadline'] as String?;
+                          final Color dColor = _deadlineColor(deadlineStr);
+                          final String dLabel = _deadlineLabel(deadlineStr);
 
                           return Container(
                             margin: const EdgeInsets.only(bottom: 10),
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.15),
+                              color: Colors.black.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.white.withOpacity(0.04)),
+                              border: Border.all(
+                                color: done
+                                    ? Colors.white.withValues(alpha: 0.04)
+                                    : dColor.withValues(alpha: 0.25),
+                              ),
                             ),
                             child: Row(
                               children: [
@@ -1370,20 +1480,16 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                   onChanged: (val) async {
                                     if (val != null && taskId != 0) {
                                       final previousVal = task['done'];
-                                      setState(() {
-                                        task['done'] = val; // optimistic update
-                                      });
+                                      setState(() => task['done'] = val);
                                       final success = await _apiService.toggleGoal(taskId, val);
                                       if (success) {
                                         _loadGoals();
                                       } else {
-                                        setState(() {
-                                          task['done'] = previousVal; // revert
-                                        });
+                                        setState(() => task['done'] = previousVal);
                                         if (!mounted) return;
                                         ScaffoldMessenger.of(context).showSnackBar(
                                           const SnackBar(
-                                            content: Text("Failed to update goal. Please check your network connection."),
+                                            content: Text('Failed to update goal.'),
                                             backgroundColor: Colors.redAccent,
                                           ),
                                         );
@@ -1391,36 +1497,58 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                                     }
                                   },
                                 ),
-                                const SizedBox(width: 12),
+                                const SizedBox(width: 10),
                                 Expanded(
-                                  child: Text(
-                                    title,
-                                    style: TextStyle(
-                                      color: done ? textMuted : Colors.white,
-                                      fontSize: 14.5,
-                                      decoration: done ? TextDecoration.lineThrough : null,
-                                    ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        title,
+                                        style: TextStyle(
+                                          color: done ? textMuted : Colors.white,
+                                          fontSize: 14.5,
+                                          decoration: done ? TextDecoration.lineThrough : null,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      // Deadline badge
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: done
+                                              ? Colors.white.withValues(alpha: 0.05)
+                                              : dColor.withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          done ? '✓ Completed' : dLabel,
+                                          style: TextStyle(
+                                            color: done ? textMuted : dColor,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            letterSpacing: 0.4,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                                 IconButton(
-                                  icon: const Icon(Icons.delete_outline_rounded, color: Colors.grey, size: 20),
+                                  icon: const Icon(Icons.delete_outline_rounded,
+                                      color: Colors.grey, size: 20),
                                   onPressed: () async {
                                     if (taskId != 0) {
                                       final removedTask = _checklistTasks[index];
-                                      setState(() {
-                                        _checklistTasks.removeAt(index); // optimistic update
-                                      });
+                                      setState(() => _checklistTasks.removeAt(index));
                                       final success = await _apiService.deleteGoal(taskId);
                                       if (success) {
                                         _loadGoals();
                                       } else {
-                                        setState(() {
-                                          _checklistTasks.insert(index, removedTask); // revert
-                                        });
+                                        setState(() => _checklistTasks.insert(index, removedTask));
                                         if (!mounted) return;
                                         ScaffoldMessenger.of(context).showSnackBar(
                                           const SnackBar(
-                                            content: Text("Failed to delete goal. Please check your network connection."),
+                                            content: Text('Failed to delete goal.'),
                                             backgroundColor: Colors.redAccent,
                                           ),
                                         );

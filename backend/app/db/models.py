@@ -1,5 +1,5 @@
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, date
 from sqlmodel import Field, SQLModel, Relationship
 
 # Table 1: The User
@@ -57,6 +57,8 @@ class TaskGoal(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     title: str = Field(index=True)
     done: bool = Field(default=False)
+    # Mandatory deadline: tasks are sorted and displayed by this date.
+    deadline: Optional[date] = Field(default=None, index=True)
 
     # The Foreign Key linking this task back to a specific user
     user_id: int = Field(foreign_key="user.id", index=True)
