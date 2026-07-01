@@ -180,8 +180,8 @@ class ApiService {
     }
   }
 
-  /// Adds a new task goal in the database.
-  Future<Map<String, dynamic>?> addGoal(String title, {int userId = 1}) async {
+  /// Adds a new task goal in the database. Deadline is mandatory.
+  Future<Map<String, dynamic>?> addGoal(String title, DateTime deadline, {int userId = 1}) async {
     final url = Uri.parse('$baseUrl/goals');
     try {
       final response = await http.post(
@@ -193,6 +193,8 @@ class ApiService {
         body: jsonEncode({
           'title': title,
           'user_id': userId,
+          // ISO date format: "2026-07-15"
+          'deadline': "${deadline.year.toString().padLeft(4, '0')}-${deadline.month.toString().padLeft(2, '0')}-${deadline.day.toString().padLeft(2, '0')}",
         }),
       );
       if (response.statusCode == 201) {

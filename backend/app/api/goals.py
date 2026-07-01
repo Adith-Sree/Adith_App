@@ -2,9 +2,10 @@
 app/api/goals.py
 
 All task goals endpoints — fully wired to PostgreSQL via SQLModel.
-Synchronizes checklist items in real-time.
+Synchronizes checklist items in real-time. Goals are sorted by deadline ascending.
 """
 from typing import Optional, List
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -21,12 +22,14 @@ router = APIRouter(prefix="/api/goals", tags=["Goals"])
 class CreateGoalRequest(BaseModel):
     title: str
     user_id: int = 1
+    deadline: date  # Mandatory — date when this task must be completed
 
 class GoalResponse(BaseModel):
     id: int
     title: str
     done: bool
     user_id: int
+    deadline: Optional[date] = None
 
 class ToggleGoalRequest(BaseModel):
     done: bool
@@ -40,11 +43,11 @@ def get_user_goals(
     user_id: int,
     db: Session = Depends(get_session),
 ) -> List[TaskGoal]:
-    """Retrieves all task checklist goals for a specific user, ordered by ID."""
+    """Retrieves all task checklist goals for a specific user, ordered by deadline ascending (soonest first)."""
     statement = (
         select(TaskGoal)
         .where(TaskGoal.user_id == user_id)
-        .order_by(TaskGoal.id)
+        .order_by(TaskGoal.deadline.asc().nulls_last(), TaskGoal.id)
     )
     return db.exec(statement).all()
 
@@ -54,7 +57,7 @@ def create_goal(
     payload: CreateGoalRequest,
     db: Session = Depends(get_session),
 ) -> TaskGoal:
-    """Creates a new synchronized task goal in the database."""
+    """Creates a new synchronized task goal in the database with a mandatory deadline."""
     user = db.get(User, payload.user_id)
     if not user:
         raise HTTPException(
@@ -65,6 +68,7 @@ def create_goal(
     goal = TaskGoal(
         title=payload.title,
         done=False,
+        deadline=payload.deadline,
         user_id=payload.user_id,
     )
     db.add(goal)
