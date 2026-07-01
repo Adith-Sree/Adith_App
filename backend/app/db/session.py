@@ -33,8 +33,19 @@ engine = create_engine(
 
 
 def create_db_and_tables() -> None:
-    """Creates all SQLModel tables. Called on app startup."""
+    """Creates all SQLModel tables and runs necessary schema migrations. Called on app startup."""
     SQLModel.metadata.create_all(engine)
+    # Run manual column migration (create_all doesn't add columns to existing tables)
+    from sqlmodel import text
+    with Session(engine) as session:
+        try:
+            session.exec(text("ALTER TABLE taskgoal ADD COLUMN IF NOT EXISTS deadline DATE"))
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            # SQLite does not support IF NOT EXISTS in ALTER TABLE in older versions, 
+            # so we catch and ignore if it already exists or isn't supported.
+            print(f"[Migration] Note: {e}")
 
 
 def get_session() -> Generator[Session, None, None]:
